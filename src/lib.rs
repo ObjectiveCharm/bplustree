@@ -1916,7 +1916,7 @@ impl<K: Clone, V, const INNER_CAPACITY: usize, const LC: usize> InternalNode<K, 
 
 #[cfg(test)]
 mod tests {
-    use super::{LeafNode, ParentHandler, Direction};
+    use super::{LeafNode, ParentHandler, Direction, BPlusTree};
     use smallvec::smallvec;
     use crossbeam_epoch::{self as epoch};
 
@@ -2064,5 +2064,56 @@ mod tests {
         assert!(node.len == 0);
 
         assert!(node.lower_bound("0001") == (0, false));
+    }
+
+    #[test]
+    fn test_len_concurrent() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+
+        // Create a new B+ tree
+        let tree = Arc::new(BPlusTree::new());
+        let num_threads = 4;
+        let items_per_thread = 1000;
+        let barrier = Arc::new(Barrier::new(num_threads));
+
+        // Create threads that will insert elements
+        let mut handles = Vec::new();
+        for t in 0..num_threads {
+            let tree = Arc::clone(&tree);
+            let barrier = Arc::clone(&barrier);
+
+            let handle = thread::spawn(move || {
+                // Wait for all threads to be ready
+                barrier.wait();
+
+                // Each thread inserts its own range of numbers
+                let start = t * items_per_thread;
+                let end = start + items_per_thread;
+                for i in start..end {
+                    tree.insert(i, format!("value_{}", i));
+                }
+            });
+
+            handles.push(handle);
+        }
+
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Verify the final length
+        let expected_len = num_threads * items_per_thread;
+        assert_eq!(tree.len(), expected_len);
+
+        // Verify all elements are present
+        let mut actual_count = 0;
+        let mut iter = tree.raw_iter();
+        iter.seek_to_first();
+        while let Some(_) = iter.next() {
+            actual_count += 1;
+        }
+        assert_eq!(actual_count, expected_len);
     }
 }
