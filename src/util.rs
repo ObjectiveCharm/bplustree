@@ -41,7 +41,8 @@ enum TreeNode {
 #[derive(Deserialize, Debug)]
 struct Tree {
     root: TreeNode,
-    height: usize
+    height: usize,
+    len: usize
 }
 
 fn translate_node(tree_node: TreeNode) -> Atomic<HybridLatch<DefaultNode<String, u64>>> {
@@ -96,6 +97,7 @@ pub fn sample_tree<P: AsRef<std::path::Path>>(path: P) -> BPlusTree<String, u64>
     let translated = translate_node(tree.root);
     BPlusTree {
         root: HybridLatch::new(translated),
-        height: AtomicUsize::new(tree.height)
+        height: AtomicUsize::new(tree.height),
+        len: AtomicUsize::new(tree.len)
     }
 }

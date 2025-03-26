@@ -59,5 +59,6 @@
     "upper_fence": null,
     "sample_key": "0003"
   },
-  "height": 3
+  "height": 3,
+  "len": 3
 }

@@ -29,8 +29,8 @@ pub mod latch;
 pub mod iter;
 #[cfg(test)]
 pub mod util;
-#[cfg(test)]
-pub mod bench;
+// #[cfg(test)]
+// pub mod bench;
 
 use latch::{HybridLatch, OptimisticGuard, SharedGuard, ExclusiveGuard, HybridGuard};
 
@@ -43,7 +43,8 @@ pub type BPlusTree<K, V> = GenericBPlusTree<K, V, 128, 256>;
 /// and `LC` respectively.
 pub struct GenericBPlusTree<K, V, const IC: usize, const LC: usize> {
     root: HybridLatch<Atomic<HybridLatch<Node<K, V, IC, LC>>>>,
-    height: AtomicUsize
+    height: AtomicUsize,
+    len: AtomicUsize
 }
 
 pub(crate) enum ParentHandler<'r, 'p, K, V, const IC: usize, const LC: usize> {
@@ -98,7 +99,8 @@ impl<K: Clone + Ord, V, const IC: usize, const LC: usize> GenericBPlusTree<K, V,
                     sample_key: None
                 }
             )))),
-            height: AtomicUsize::new(1)
+            height: AtomicUsize::new(1),
+            len: AtomicUsize::new(0)
         }
     }
 
@@ -752,7 +754,10 @@ impl<K: Clone + Ord, V, const IC: usize, const LC: usize> GenericBPlusTree<K, V,
         K: Borrow<Q> + Ord,
         Q: ?Sized + Ord
     {
-        self.remove_entry(key).map(|(_, v)| v)
+        self.remove_entry(key).map(|(_, v)| {
+            self.len.fetch_sub(1, Ordering::Release);
+            v
+        })
     }
 
     /// Removes a key from the tree, returning the stored key and value if the key
@@ -842,7 +847,10 @@ impl<K: Clone + Ord, V, const IC: usize, const LC: usize> GenericBPlusTree<K, V,
         K: Ord
     {
         let mut iter = self.raw_iter_mut();
-        iter.insert(key, value)
+        iter.insert(key, value).or_else(|| {
+            self.len.fetch_add(1, Ordering::Release);
+            None
+        })
     }
 
     pub(crate) fn try_split<'t, 'g, 'e>(&'t self, needle: &OptimisticGuard<'g, Node<K, V, IC, LC>>, eg: &'e epoch::Guard) -> error::Result<()>
@@ -1351,13 +1359,7 @@ impl<K: Clone + Ord, V, const IC: usize, const LC: usize> GenericBPlusTree<K, V,
     /// assert_eq!(tree.len(), 1);
     /// ```
     pub fn len(&self) -> usize {
-        let mut count = 0usize;
-        let mut iter = self.raw_iter();
-        iter.seek_to_first();
-        while let Some(_) = iter.next() {
-            count += 1;
-        }
-        count
+        self.len.load(Ordering::Acquire)
     }
 }
 
